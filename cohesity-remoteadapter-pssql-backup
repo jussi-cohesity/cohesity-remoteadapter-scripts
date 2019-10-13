@@ -65,4 +65,8 @@ if [ ! -z ${BACKUP_DIR} ]; then
       fi
 fi 
 
+# Clean backup scripts and file lists
+rm -rf $LOG_DIR/$TODAY/runjob.sh
+rm -rf $LOG_DIR/$TODAY/folders_part*
+
 exit 0
