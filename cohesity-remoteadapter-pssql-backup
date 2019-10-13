@@ -22,6 +22,8 @@ NFS_MOUNT=("/mnt/cohesity1" "/mnt/cohesity2" "/mnt/cohesity3" "/mnt/cohesity4")
 SPLIT_SIZE=4
 BACKUP_RETAIN_DAYS=7
 
+echo "Starting backup...."
+
 # Create directory for todays backup and logs
 mkdir -p $BACKUP_DIR/$TODAY
 mkdir -p $LOG_DIR/$TODAY
@@ -31,8 +33,12 @@ if [ -d $BACKUP_DIR/$TODAY ]; then
         # Get all database list first
         DBS=$($PSSQL -l | awk '{ print $1}' | grep -vE '^-|^List|^Name|template[0|1]')
         
+        echo "Dumping DBs:"
+        echo $DBS
+
         for db in $DBS
         do
+            echo "Dumping DB $db"
             mkdir -p $BACKUP_DIR/$TODAY/$db
             $PSSQLDUMP --single-transaction  -U $PSSQL_USER -h $PSSQL_HOST $db | $GZIP -9 > $BACKUP_DIR/$TODAY/$db/$db.dump.gz
         done
@@ -46,14 +52,29 @@ touch $LOG_DIR/$TODAY/rsync.log
 cd $LOG_DIR/$TODAY
 split -l$SPLIT_SIZE -d $LOG_DIR/$TODAY/transaction.log folders_part
 
+echo "Building rsync job:"
 # Build rsync job
 for files in `ls -B $LOG_DIR/$TODAY/folders_part*`
 do
     TARGET_NFS=${NFS_MOUNT[RANDOM%${#NFS_MOUNT[@]}]}
+    echo "rsync -avzm --relative --stats --safe-links --ignore-existing --human-readable \`cat $files\`  $TARGET_NFS"
     echo "rsync -avzm --relative --stats --safe-links --ignore-existing --human-readable \`cat $files\`  $TARGET_NFS" >> $LOG_DIR/$TODAY/runjob.sh
 done
 
+echo "Running rsync job...."
 . $LOG_DIR/$TODAY/runjob.sh
+
+TARGET_NFS=${NFS_MOUNT[RANDOM%${#NFS_MOUNT[@]}]}
+DIRS_SOURCE=$(ls -b $BACKUP_DIR/$TODAY | wc -l)
+DIRS_DEST=$(ls -b $TARGET_NFS$BACKUP_DIR/$TODAY | wc -l)
+
+if [ $DIRS_DEST != $DIRS_SOURCE ]
+then
+        echo "Failed to copy all backups to destination. Check status!"
+        exit 0
+else
+        echo "Copied $DIRS_SOURCE backups to Cohesity view"
+fi
 
 # Remove old backups from view
 DBDELDATE=`date +"%m-%d-%Y" --date="${BACKUP_RETAIN_DAYS} days ago"`
@@ -64,9 +85,5 @@ if [ ! -z ${BACKUP_DIR} ]; then
             rm -rf ${DBDELDATE}
       fi
 fi 
-
-# Clean backup scripts and file lists
-rm -rf $LOG_DIR/$TODAY/runjob.sh
-rm -rf $LOG_DIR/$TODAY/folders_part*
 
 exit 0
