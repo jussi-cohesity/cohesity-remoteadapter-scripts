@@ -50,7 +50,7 @@ split -l$SPLIT_SIZE -d $LOG_DIR/$TODAY/transaction.log folders_part
 for files in `ls -B $LOG_DIR/$TODAY/folders_part*`
 do
     TARGET_NFS=${NFS_MOUNT[RANDOM%${#NFS_MOUNT[@]}]}
-    echo "rsync -avzm \`cat $files\`  $TARGET_NFS/$TODAY < $LOG_DIR/$TODAY/rsync.log &" >> $LOG_DIR/$TODAY/runjob.sh
+    echo "rsync -avzm --relative --stats --safe-links --ignore-existing --human-readable \`cat $files\`  $TARGET_NFS" >> $LOG_DIR/$TODAY/runjob.sh
 done
 
 . $LOG_DIR/$TODAY/runjob.sh
