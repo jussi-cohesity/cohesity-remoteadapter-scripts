@@ -45,7 +45,7 @@ if [ -d $BACKUP_DIR/$TODAY ]; then
                 do
                         echo "Dumping DB $db"
                         mkdir -p $BACKUP_DIR/$TODAY/$db
-                        $PSSQLDUMP --single-transaction  -U $PSSQL_USER -h $PSSQL_HOST $db | $GZIP -9 > $BACKUP_DIR/$TODAY/$db/$db.dump.gz
+                        $PSSQLDUMP -Fp -U $PSSQL_USER -h $PSSQL_HOST $db | $GZIP -9 > $BACKUP_DIR/$TODAY/$db/$db.dump.gz
                 done
         fi
 fi
