@@ -40,7 +40,7 @@ if [ -d $BACKUP_DIR/$TODAY ]; then
         if [ "$DBS" == "" ] 
         then
                 echo "ERROR! No DBs to protect found. Please check MySQL status!"
-                exit 0
+                exit 1
         else
                 echo "Found DBs to backup: $DBS"
 
@@ -81,7 +81,7 @@ DIRS_DEST=$(ls -b $TARGET_NFS$BACKUP_DIR/$TODAY | wc -l)
 if [ $DIRS_DEST != $DIRS_SOURCE ]
 then
         echo "Failed to copy all backups to destination. Check status!"
-        exit 0
+        exit 1
 else
         echo "Copied $DIRS_SOURCE backups to Cohesity view"
 fi
