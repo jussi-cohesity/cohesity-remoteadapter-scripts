@@ -21,6 +21,7 @@ PSSQL_HOST="localhost"
 NFS_MOUNT=("/mnt/cohesity1" "/mnt/cohesity2" "/mnt/cohesity3" "/mnt/cohesity4")
 SPLIT_SIZE=4
 BACKUP_RETAIN_DAYS=7
+SKIPDATABASES="Database|otherdbtoskip|dontbackup"
 
 echo "Starting backup...."
 
@@ -31,17 +32,22 @@ mkdir -p $LOG_DIR/$TODAY
 if [ -d $BACKUP_DIR/$TODAY ]; then
 
         # Get all database list first
-        DBS=$($PSSQL -l | awk '{ print $1}' | grep -vE '^-|^List|^Name|template[0|1]')
+        DBS=$($PSSQL -l | awk '{ print $1}' | grep -vE '^-|^List|^Name|template[0|1]' | grep -Ev "($SKIPDATABASES)")
         
-        echo "Dumping DBs:"
-        echo $DBS
-
-        for db in $DBS
-        do
-            echo "Dumping DB $db"
-            mkdir -p $BACKUP_DIR/$TODAY/$db
-            $PSSQLDUMP --single-transaction  -U $PSSQL_USER -h $PSSQL_HOST $db | $GZIP -9 > $BACKUP_DIR/$TODAY/$db/$db.dump.gz
-        done
+        if [ "$DBS" == "" ] 
+        then
+                echo "ERROR! No DBs to protect found. Please check MySQL status!"
+                exit 0
+        else
+                echo "Found DBs to backup: $DBS"
+                
+                for db in $DBS
+                do
+                        echo "Dumping DB $db"
+                        mkdir -p $BACKUP_DIR/$TODAY/$db
+                        $PSSQLDUMP --single-transaction  -U $PSSQL_USER -h $PSSQL_HOST $db | $GZIP -9 > $BACKUP_DIR/$TODAY/$db/$db.dump.gz
+                done
+        fi
 fi
 
 # Find backups to transaction log and split logs to size of $SPLIT_SIZE
