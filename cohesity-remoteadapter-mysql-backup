@@ -33,7 +33,7 @@ mkdir -p $LOG_DIR/$TODAY
 if [ -d $BACKUP_DIR/$TODAY ]; then
 
         # Get all database list first
-        #DBS="$($MYSQL -u $MYSQL_USER -h $MYSQL_HOST -p$MYSQL_PASSWORD -Bse 'show databases')" 
+      
         DBS=`$MYSQL -u$MYSQL_USER -p$MYSQL_PASSWORD -e "SHOW DATABASES;" | grep -Ev "($SKIPDATABASES)"`
        
         
