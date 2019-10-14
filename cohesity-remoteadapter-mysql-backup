@@ -21,6 +21,7 @@ MYSQL_HOST="localhost"
 NFS_MOUNT=("/mnt/cohesity1" "/mnt/cohesity2" "/mnt/cohesity3" "/mnt/cohesity4")
 SPLIT_SIZE=4
 BACKUP_RETAIN_DAYS=7
+SKIPDATABASES="Database|information_schema|performance_schema|mysql"
 
 echo "Starting backup...."
 
@@ -32,17 +33,25 @@ mkdir -p $LOG_DIR/$TODAY
 if [ -d $BACKUP_DIR/$TODAY ]; then
 
         # Get all database list first
-        DBS="$($MYSQL -u $MYSQL_USER -h $MYSQL_HOST -p$MYSQL_PASSWORD -Bse 'show databases')"
+        #DBS="$($MYSQL -u $MYSQL_USER -h $MYSQL_HOST -p$MYSQL_PASSWORD -Bse 'show databases')" 
+        DBS=`$MYSQL -u$MYSQL_USER -p$MYSQL_PASSWORD -e "SHOW DATABASES;" | grep -Ev "($SKIPDATABASES)"`
+       
         
-        echo "Dumping DBs:"
-        echo $DBS
+        if [ "$DBS" == "" ] 
+        then
+                echo "ERROR! No DBs to protect found. Please check MySQL status!"
+                exit 0
+        else
+                echo "Found DBs to backup: $DBS"
 
-        for db in $DBS
-        do
-            echo "Dumping DB $db"
-            mkdir -p $BACKUP_DIR/$TODAY/$db
-            $MYSQLDUMP --single-transaction  -u $MYSQL_USER -h $MYSQL_HOST -p$MYSQL_PASSWORD $db | $GZIP -9 > $BACKUP_DIR/$TODAY/$db/$db.dump.gz
-        done
+                for db in $DBS
+                do
+                      
+                        echo "Dumping DB $db"
+                        mkdir -p $BACKUP_DIR/$TODAY/$db
+                        $MYSQLDUMP --single-transaction  -u $MYSQL_USER -h $MYSQL_HOST -p$MYSQL_PASSWORD $db | $GZIP -9 > $BACKUP_DIR/$TODAY/$db/$db.dump.gz
+                done
+        fi
 fi
 
 # Find backups to transaction log and split logs to size of $SPLIT_SIZE
