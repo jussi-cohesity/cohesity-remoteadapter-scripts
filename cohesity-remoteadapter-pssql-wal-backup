@@ -1,0 +1,130 @@
+#!/bin/bash
+
+##
+#
+# This is example script to use Cohesity Remote Adapter feature to backup PostgreSQL DBs and WAL logs
+#
+##
+
+trap "exit 1" HUP INT TERM
+PATH=/sbin:/bin:/usr/sbin:/usr/bin
+
+BACKUP_DIR=/backup/pg_backups
+PSQL_DIR=/var/lib/postgresql
+TAR="$(which pssql)"
+PSSQL="$(which pssql)"
+PSSQL_USER="username"
+PGPASSWORD='password'
+PSSQL_HOST="localhost"
+WAL_DIR=/backup/postgresql
+TODAY=$(date +%Y%m%d-%H_%M_%S)
+YESTERDAY=$(find $BACKUP_DIR -maxdepth 1 -type d -name "*" -exec basename {} \; | tail -n +2 | grep -v "lost+found" | sort -rn | head -1) 
+NFS_MOUNT=("/mnt/cohesity1" "/mnt/cohesity2" "/mnt/cohesity3" "/mnt/cohesity4")
+SPLIT_SIZE="200M"
+
+
+echo "Starting backup...."
+# Freeze PSQL DBs
+$PSQL -c "select pg_start_backup('$TODAY', true);"
+
+if [ $? = 0 ]
+then
+    # Create directory for todays backup and logs
+    mkdir -p $BACKUP_DIR/$TODAY
+    $TAR cvj --one-file-system -f $BACKUP_DIR/$TODAY/base.tar.bz2 $PSQL_DIR
+
+    # Stop backup freeze
+    $PSQL -c 'select pg_stop_backup();'
+
+    cd $WAL_DIR
+    # Find last numerical *.backup file and extract the wal segments
+    breakpoint=`ls *.backup | sort -r | head -n1 | sed -e 's/\..*$//'`
+
+    # Get the linenumber of applicable wal segment in the directory listing, generate a list to archive of all those that are in that first set of lines, including the backup wal segment
+    arline=`ls | sort | sed -ne "/^$breakpoint$/ =" `
+    archive=`ls | sort | head -n $arline`
+
+    # Get the line number of the wal segment immediately before the backup. generate the list to remove of all those in that set of lines, excluding the backup wal segment
+    rmline=`echo "$arline - 1" | bc`
+    remove=`ls | sort | head -n $rmline`
+
+    $TAR cvjf $BACKUP_DIR/$YESTERDAY/full-wal.tar.bz2 $archive
+    rm $remove
+    $TAR cvjf $BACKUP_DIR/$TODAY/pit-wal.tar.bz2 $WAL_DIR
+
+    cd $BACKUP_DIR
+    ls -1d * | sort -rn | tail -n +15 | xargs rm -vr 
+
+    cd $OLDPWD
+else
+    echo "Could not backup database on $TODAY. Please check status of PSQL DB!"
+fi
+
+# Split backup tars to SPLIT_SIZE MB blocks
+cd $BACKUP_DIR/$TODAY
+split -b$SPLIT_SIZE base.tar.bz2 "base.tar.bz2.part"
+split -b$SPLIT_SIZE pit-wal.tar.bz2 "pit-wal.tar.bz2.part"
+
+cd $BACKUP_DIR/$YESTERDAY
+split -b$SPLIT_SIZE full-wal.tar.bz2 "full-wal.tar.bz2.part"
+
+# Build rsync job 
+for file in `ls $BACKUP_DIR/$TODAY/*part*`
+do
+    TARGET_NFS=${NFS_MOUNT[RANDOM%${#NFS_MOUNT[@]}]}
+    echo "rsync -avzm --relative --stats --safe-links --ignore-existing --human-readable $file $TARGET_NFS"
+    echo "rsync -avzm --relative --stats --safe-links --ignore-existing --human-readable \`cat $files\`  $TARGET_NFS" >> $BACKUP_DIR/rsync_job_$TODAY.sh
+done
+
+for file in `ls $BACKUP_DIR/$YESTERDAY/*part*`
+do
+    TARGET_NFS=${NFS_MOUNT[RANDOM%${#NFS_MOUNT[@]}]}
+    echo "rsync -avzm --relative --stats --safe-links --ignore-existing --human-readable $file $TARGET_NFS"
+    echo "rsync -avzm --relative --stats --safe-links --ignore-existing --human-readable \`cat $files\`  $TARGET_NFS" >> $BACKUP_DIR/rsync_job_$TODAY.sh
+done
+
+echo "Running rsync job...."
+. $BACKUP_DIR/rsync_job_$TODAY.sh
+
+# Join splits to files
+for join in base.tar.bz2 pit-wal.tar.bz2
+do
+    TARGET_NFS=${NFS_MOUNT[RANDOM%${#NFS_MOUNT[@]}]}
+    cd $TARGET_NFS/$BACKUP_DIR/$TODAY
+    echo "Joining $join.part* to $join"
+    cat $join.part* > $join
+done
+
+for join in full-wal.tar.bz2
+do
+    TARGET_NFS=${NFS_MOUNT[RANDOM%${#NFS_MOUNT[@]}]}
+    cd $TARGET_NFS/$BACKUP_DIR/$YESTERDAY
+    echo "Joining $join.part* to $join"
+    cat $join.part* > $join
+done
+
+# Check status of rsync and join
+TARGET_NFS=${NFS_MOUNT[RANDOM%${#NFS_MOUNT[@]}]}
+
+if [ -f $TARGET_NFS/$BACKUP_DIR/$TODAY/base.tar.bz2]; then
+    echo "base.tar.bz2 backup was successful!"
+else
+    echo "File base.tar.bz2 was not found from Cohesity View. Backup failed!"
+    exit 1
+fi
+
+if [ -f $TARGET_NFS/$BACKUP_DIR/$TODAY/pit-wal.tar.bz2]; then
+    echo "pit-wal.tar.bz2 backup was successful!"
+else
+    echo "File pit-wal.tar.bz2 was not found from Cohesity View. Backup failed!"
+    exit 1
+fi
+
+if [ -f $TARGET_NFS/$BACKUP_DIR/$YESTERDAT/full-wal.tar.bz2]; then
+    echo "full-wal.tar.bz2 backup was successful!"
+else
+    echo "File full-wal.tar.bz2 was not found from Cohesity View. Backup failed!"
+    exit 1
+fi
+
+exit 0
